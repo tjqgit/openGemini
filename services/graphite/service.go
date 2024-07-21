@@ -3,19 +3,19 @@ package graphite
 import (
 	"bufio"
 	"fmt"
-	"github.com/influxdata/influxdb/models"
-	"github.com/influxdata/influxdb/monitor/diagnostics"
-	"github.com/influxdata/influxdb/tsdb"
-	"github.com/openGemini/openGemini/lib/config"
-	"github.com/openGemini/openGemini/lib/logger"
-	"github.com/openGemini/openGemini/lib/util/lifted/influx/meta"
-	"go.uber.org/zap"
 	"math"
 	"net"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/influxdata/influxdb/models"
+	"github.com/influxdata/influxdb/tsdb"
+	"github.com/openGemini/openGemini/lib/config"
+	"github.com/openGemini/openGemini/lib/logger"
+	"github.com/openGemini/openGemini/lib/util/lifted/influx/meta"
+	"go.uber.org/zap"
 )
 
 const udpBufferSize = 65536
@@ -74,19 +74,19 @@ type Service struct {
 	ready bool          // Has the required database been created?
 	done  chan struct{} // Is the service closing or closed?
 
-	Monitor interface {
-		RegisterDiagnosticsClient(name string, client diagnostics.Client)
-		DeregisterDiagnosticsClient(name string)
-	}
-	PointsWriter interface {
-		WritePointsPrivileged(database, retentionPolicy string, consistencyLevel models.ConsistencyLevel, points []models.Point) error
-	}
-	MetaClient interface {
-		CreateDatabaseWithRetentionPolicy(name string, spec *meta.RetentionPolicySpec) (*meta.DatabaseInfo, error)
-		CreateRetentionPolicy(database string, spec *meta.RetentionPolicySpec, makeDefault bool) (*meta.RetentionPolicyInfo, error)
-		Database(name string) *meta.DatabaseInfo
-		RetentionPolicy(database, name string) (*meta.RetentionPolicyInfo, error)
-	}
+	PointsWriter PointsWriter
+	MetaClient   MetaClient
+}
+
+type MetaClient interface {
+	CreateDatabaseWithRetentionPolicy(name string, spec *meta.RetentionPolicySpec) (*meta.DatabaseInfo, error)
+	CreateRetentionPolicy(database string, spec *meta.RetentionPolicySpec, makeDefault bool) (*meta.RetentionPolicyInfo, error)
+	Database(name string) *meta.DatabaseInfo
+	RetentionPolicy(database, name string) (*meta.RetentionPolicyInfo, error)
+}
+
+type PointsWriter interface {
+	WritePointsPrivileged(database, retentionPolicy string, consistencyLevel models.ConsistencyLevel, points []models.Point) error
 }
 
 // NewService returns an instance of the Graphite service.
@@ -136,11 +136,6 @@ func (s *Service) Open() error {
 	s.logger.Info("Starting graphite service",
 		zap.Int("batch_size", s.batchSize),
 		logger.DurationLiteral("batch_timeout", s.batchTimeout))
-
-	// Register diagnostics if a Monitor service is available.
-	if s.Monitor != nil {
-		s.Monitor.RegisterDiagnosticsClient(s.diagsKey, s)
-	}
 
 	s.batcher = tsdb.NewPointBatcher(s.batchSize, s.batchPending, s.batchTimeout)
 	s.batcher.Start()
@@ -199,9 +194,6 @@ func (s *Service) Close() error {
 			s.batcher.Stop()
 		}
 
-		if s.Monitor != nil {
-			s.Monitor.DeregisterDiagnosticsClient(s.diagsKey)
-		}
 		return true
 	}(); !wait {
 		return nil // Already closed.
@@ -261,14 +253,6 @@ func (s *Service) createInternalStorage() error {
 	s.ready = true
 	s.mu.Unlock()
 	return nil
-}
-
-// WithLogger sets the logger on the service.
-func (s *Service) WithLogger(log *zap.Logger) {
-	s.logger = log.With(
-		zap.String("service", "graphite"),
-		zap.String("addr", s.bindAddress),
-	)
 }
 
 // Statistics maintains statistics for the graphite service.
@@ -472,17 +456,10 @@ func (s *Service) processBatches(batcher *tsdb.PointBatcher) {
 	}
 }
 
-// Diagnostics returns diagnostics of the graphite service.
-func (s *Service) Diagnostics() (*diagnostics.Diagnostics, error) {
-	s.tcpConnectionsMu.Lock()
-	defer s.tcpConnectionsMu.Unlock()
-
-	d := &diagnostics.Diagnostics{
-		Columns: []string{"local", "remote", "connect time"},
-		Rows:    make([][]interface{}, 0, len(s.tcpConnections)),
-	}
-	for _, v := range s.tcpConnections {
-		d.Rows = append(d.Rows, []interface{}{v.conn.LocalAddr().String(), v.conn.RemoteAddr().String(), v.connectTime})
-	}
-	return d, nil
+// WithLogger sets the logger on the service.
+func (s *Service) WithLogger(log *zap.Logger) {
+	s.logger = log.With(
+		zap.String("service", "graphite"),
+		zap.String("addr", s.bindAddress),
+	)
 }

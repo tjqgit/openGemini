@@ -3,6 +3,7 @@ package graphite
 import (
 	"errors"
 	"fmt"
+	"github.com/openGemini/openGemini/lib/config"
 	"net"
 	"os"
 	"sync"
@@ -11,31 +12,9 @@ import (
 
 	"github.com/influxdata/influxdb/logger"
 	"github.com/influxdata/influxdb/models"
-	"github.com/influxdata/influxdb/services/meta"
 	"github.com/influxdata/influxdb/toml"
-	"github.com/openGemini/openGemini/lib/config"
+	"github.com/openGemini/openGemini/lib/util/lifted/influx/meta"
 )
-
-type MetaClientMock struct {
-	CreateDatabaseWithRetentionPolicyFn func(name string, spec *meta.RetentionPolicySpec) (*meta.DatabaseInfo, error)
-	CreateRetentionPolicyFn             func(database string, spec *meta.RetentionPolicySpec, makeDefault bool) (*meta.RetentionPolicyInfo, error)
-	DatabaseFn                          func(name string) *meta.DatabaseInfo
-
-	RetentionPolicyFn func(database, name string) (rpi *meta.RetentionPolicyInfo, err error)
-}
-
-func (c *MetaClientMock) Database(name string) *meta.DatabaseInfo {
-	return c.DatabaseFn(name)
-}
-func (c *MetaClientMock) CreateDatabaseWithRetentionPolicy(name string, spec *meta.RetentionPolicySpec) (*meta.DatabaseInfo, error) {
-	return c.CreateDatabaseWithRetentionPolicyFn(name, spec)
-}
-func (c *MetaClientMock) CreateRetentionPolicy(database string, spec *meta.RetentionPolicySpec, makeDefault bool) (*meta.RetentionPolicyInfo, error) {
-	return c.CreateRetentionPolicyFn(database, spec, makeDefault)
-}
-func (c *MetaClientMock) RetentionPolicy(database, name string) (rpi *meta.RetentionPolicyInfo, err error) {
-	return c.RetentionPolicyFn(database, name)
-}
 
 func Test_Service_OpenClose(t *testing.T) {
 	// Let the OS assign a random port since we are only opening and closing the service,
@@ -316,9 +295,8 @@ func NewTestService(c *config.GraphiteConfig) *TestService {
 	}
 
 	// Set the Meta Client and PointsWriter.
-
-	service.Service.PointsWriter = service
 	service.Service.MetaClient = service.MetaClient
+	service.Service.PointsWriter = service
 
 	return service
 }
